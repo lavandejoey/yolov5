@@ -231,10 +231,11 @@ def methods(instance):
 
 def print_args(args: Optional[dict] = None, show_file=True, show_func=False):
     # Print function arguments (optional args dict)
-    x = inspect.currentframe().f_back  # previous frame
-    file, _, func, _, _ = inspect.getframeinfo(x)
-    if args is None:  # get args automatically
-        args, _, _, frm = inspect.getargvalues(x)
+    # 打印函数参数（可选args dict）
+    x = inspect.currentframe().f_back  # previous frame # 上一帧
+    file, _, func, _, _ = inspect.getframeinfo(x)  # 获取当前帧的信息
+    if args is None:  # get args automatically # 自动获取args
+        args, _, _, frm = inspect.getargvalues(x)  # 获取参数值
         args = {k: v for k, v in frm.items() if k in args}
     try:
         file = Path(file).resolve().relative_to(ROOT).with_suffix('')
@@ -387,10 +388,11 @@ def check_version(current='0.0.0', minimum='0.0.0', name='version ', pinned=Fals
     return result
 
 
-@TryExcept()
+@TryExcept()  # 尝试执行，如果出错则跳过
 def check_requirements(requirements=ROOT.parent / 'requirements.txt', exclude=(), install=True, cmds=''):
     """
     Check if installed dependencies meet YOLOv5 requirements and attempt to auto-update if needed.
+    检查安装的依赖项是否满足YOLOv5的要求，如果需要，尝试自动更新。
 
     Args:
         requirements (Union[Path, str, List[str]]): Path to a requirements.txt file, a single package requirement as a
@@ -402,8 +404,8 @@ def check_requirements(requirements=ROOT.parent / 'requirements.txt', exclude=()
     Returns:
         None
     """
-    prefix = colorstr('red', 'bold', 'requirements:')
-    check_python()  # check python version
+    prefix = colorstr('red', 'bold', 'requirements:')  # 红色加粗
+    check_python()  # check python version 检查python版本
     file = None
     if isinstance(requirements, Path):  # requirements.txt file
         file = requirements.resolve()
