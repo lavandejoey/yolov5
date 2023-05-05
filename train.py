@@ -14,7 +14,14 @@ Models:     https://github.com/ultralytics/yolov5/tree/master/models
 Datasets:   https://github.com/ultralytics/yolov5/tree/master/data
 Tutorial:   https://docs.ultralytics.com/yolov5/tutorials/train_custom_data
 """
-
+"""
+train.py: 训练YOLOv5模型
+1. 数据;
+2. 模型
+3. 学习率
+4. 优化器
+5. 训练
+"""
 import argparse  # 解析命令行参数模块
 import math  # 数学公式模块
 import os  # 与操作系统进行交互的模块 包含文件路径操作和解析
@@ -74,13 +81,13 @@ WORLD_SIZE = int(os.getenv('WORLD_SIZE', 1))
 GIT_INFO = check_git_info()
 
 
-def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictionary
+def train(hyp, opt, device, callbacks) -> tuple:
     """训练模型
-    @param hyp: 超参数
-    @param opt: 命令行参数
-    @param device: 设备
-    @param callbacks: 回调函数
-    @return:
+    :param hyp: 超参数
+    :param opt: 命令行参数
+    :param device: 设备
+    :param callbacks: 回调函数
+    :return: results: 训练结果
     """
     """--------------------------------------------- 初始化参数和配置信息 ---------------------------------------------"""
     save_dir, epochs, batch_size, weights, single_cls, evolve, data, cfg, resume, noval, nosave, workers, freeze = \
@@ -130,7 +137,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     names = {0: 'item'} if single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
     is_coco = isinstance(val_path, str) and val_path.endswith('coco/val2017.txt')  # COCO dataset 是否是COCO数据集
 
-    """--------------------------------------------------- model ---------------------------------------------------"""
+    """---------------------------------------------------- 模型 ----------------------------------------------------"""
     # Model
     check_suffix(weights, '.pt')  # check weights
     pretrained = weights.endswith('.pt')
@@ -299,7 +306,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                 f'Using {train_loader.num_workers * WORLD_SIZE} dataloader workers\n'
                 f"Logging results to {colorstr('bold', save_dir)}\n"
                 f'Starting training for {epochs} epochs...')
-    for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
+    """================================================ Epoch begin ================================================"""
+    for epoch in range(start_epoch, epochs):
         callbacks.run('on_train_epoch_start')
         model.train()
 
@@ -321,7 +329,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         if RANK in {-1, 0}:
             pbar = tqdm(pbar, total=nb, bar_format=TQDM_BAR_FORMAT)  # progress bar
         optimizer.zero_grad()
-        for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
+        """============================================== Batch begin =============================================="""
+        for i, (imgs, targets, paths, _) in pbar:
             callbacks.run('on_train_batch_start')
             ni = i + nb * epoch  # number integrated batches (since train start)
             imgs = imgs.to(device, non_blocking=True).float() / 255  # uint8 to float32, 0-255 to 0.0-1.0
@@ -377,7 +386,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                 callbacks.run('on_train_batch_end', model, ni, imgs, targets, paths, list(mloss))
                 if callbacks.stop_training:
                     return
-            # end batch ------------------------------------------------------------------------------------------------
+        """=============================================== Batch end ==============================================="""
 
         # Scheduler
         lr = [x['lr'] for x in optimizer.param_groups]  # for loggers
@@ -439,10 +448,9 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                 stop = broadcast_list[0]
         if stop:
             break  # must break all DDP ranks
-
-        # end epoch ----------------------------------------------------------------------------------------------------
+    """================================================= Epoch end ================================================="""
     # end training -----------------------------------------------------------------------------------------------------
-    if RANK in {-1, 0}:
+    if RANK in {-1, 0}:  # normal mode or DDP rank 0 mode
         LOGGER.info(f'\n{epoch - start_epoch + 1} epochs completed in {(time.time() - t0) / 3600:.3f} hours.')
         for f in last, best:
             if f.exists():
@@ -560,15 +568,19 @@ def parse_opt(known=False):
 
 
 def main(opt, callbacks=Callbacks()):
-    """主函数"""
-    """logging和wandb初始化"""
+    """主函数
+    :param opt: 参数
+    :param callbacks: 回调函数
+    :return:
+    """
+    """---------------------------------------------logging和wandb初始化---------------------------------------------"""
     # Checks
     if RANK in {-1, 0}:  # 如果是主进程
         print_args(vars(opt))  # 打印参数 utils/general.py
         check_git_status()  # 检查git状态 utils/general.py
         check_requirements()  # 检查requirements.txt是否满足 utils/general.py
 
-    """判断是否使用断点续训resume, 读取参数"""
+    """---------------------------------------判断是否使用断点续训resume, 读取参数---------------------------------------"""
     # Resume (from specified or most recent last.pt)
     # 恢复训练（从指定的或最近的last.pt）
     if opt.resume and not check_comet_resume(opt) and not opt.evolve:  # opt.resume: 是否从断点处恢复训练
@@ -597,7 +609,7 @@ def main(opt, callbacks=Callbacks()):
             opt.name = Path(opt.cfg).stem  # use model.yaml as name
         opt.save_dir = str(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))
 
-    """DDP mode 设置"""
+    """------------------------------------------------DDP mode 设置------------------------------------------------"""
     # DDP（分布式数据并行）模式
     device = select_device(opt.device, batch_size=opt.batch_size)
     if LOCAL_RANK != -1:  # 如果是DDP模式
@@ -751,6 +763,10 @@ def main(opt, callbacks=Callbacks()):
 
 
 def run(**kwargs):
+    """Train a model with a given set of hyper-parameters 使用给定的一组超参数训练模型
+    :param kwargs: key=value pairs are added to opt
+    :return: opt
+    """
     # Usage: import train; train.run(data='coco128.yaml', imgsz=320, weights='yolov5m.pt')
     opt = parse_opt(True)
     for k, v in kwargs.items():
