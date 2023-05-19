@@ -3,6 +3,12 @@
 AutoAnchor utils
 """
 
+"""Auto Anchor是通过 k-means 聚类 + 遗传算法来生成和当前数据集匹配度更高的 Anchors
+1. parse_opt 中设置flag: --noautoanchor false
+2. hyp.scratch*.yaml下的anchors参数必须注释掉: 
+    # anchors: 3  # anchors per output layer (0 to ignore)
+"""
+
 import random
 
 import numpy as np
@@ -10,17 +16,25 @@ import torch
 import yaml
 from tqdm import tqdm
 
-from utils import TryExcept
-from utils.general import LOGGER, TQDM_BAR_FORMAT, colorstr
+from utils import TryExcept  # 用于捕获异常
+from utils.general import LOGGER, TQDM_BAR_FORMAT, colorstr  # 用于打印日志
 
 PREFIX = colorstr('AutoAnchor: ')
 
 
 def check_anchor_order(m):
+    """确认当前anchors和stride的顺序是否是一致的
+    因为我们的m.anchors是相对各个feature map（每个feature map的感受野不同->检测的目标大小也不同->适合的anchor大小也不同）
+    所以必须要顺序一致 否则效果会很不好。函数一般用于check_anchors最后阶段
+    :param m: Detect() module
+    """
     # Check anchor order against stride order for YOLOv5 Detect() module m, and correct if necessary
-    a = m.anchors.prod(-1).mean(-1).view(-1)  # mean anchor area per output layer
-    da = a[-1] - a[0]  # delta a
-    ds = m.stride[-1] - m.stride[0]  # delta s
+    # 检查anchor顺序是否和stride顺序一致，如果不一致则进行翻转
+    a = m.anchors.prod(-1).mean(-1).view(-1)  # mean anchor area per output layer 每一输出层的平均anchor面积
+    da = a[-1] - a[0]  # delta a 最后一个anchor面积和第一个anchor面积的差值
+    ds = m.stride[-1] - m.stride[0]  # delta s 最后一个stride和第一个stride的差值
+    # torch.sign(x):当x大于/小于0时，返回1/-1
+    # 如果这里anchor与stride顺序不一致，则重新调整顺序
     if da and (da.sign() != ds.sign()):  # same order
         LOGGER.info(f'{PREFIX}Reversing anchor order')
         m.anchors[:] = m.anchors.flip(0)
@@ -28,6 +42,13 @@ def check_anchor_order(m):
 
 @TryExcept(f'{PREFIX}ERROR')
 def check_anchors(dataset, model, thr=4.0, imgsz=640):
+    """通过计算bpr确定是否需要改变anchors 需要就调用k-means重新计算anchors
+    :param dataset: 自定义数据集LoadImagesAndLabels返回的数据集
+    :param model: model or path to model.pt file
+    :param thr: 界定anchors与label的匹配度的阈值
+    :param imgsz: image size, default=640
+    :return: None
+    """
     # Check anchor fit to data, recompute if necessary
     m = model.module.model[-1] if hasattr(model, 'module') else model.model[-1]  # Detect()
     shapes = imgsz * dataset.shapes / dataset.shapes.max(1, keepdims=True)
